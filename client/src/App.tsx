@@ -251,7 +251,7 @@ export default function App() {
         "typing-status",
         (data: { roomId?: unknown; username?: unknown; isTyping?: unknown }) => {
           if (
-            typeof data.roomId !== "string" ||
+            typeof data?.roomId !== "string" ||
             typeof data.username !== "string" ||
             typeof data.isTyping !== "boolean"
           ) {
@@ -299,11 +299,17 @@ export default function App() {
       );
 
       return () => {
-        clearTypingUsers();
+        typingTimeouts.forEach((timeout) => window.clearTimeout(timeout));
+        typingTimeouts.clear();
+        if (typingTimerRef.current !== null) {
+          window.clearTimeout(typingTimerRef.current);
+          typingTimerRef.current = null;
+        }
+        typingRoomRef.current = null;
         socket.disconnect();
         socketRef.current = null;
         setChatConnected(false);
-    };
+      };
   }, [showChat, username]);
 
   useEffect(() => {
@@ -672,6 +678,8 @@ export default function App() {
   }
 
   function leavePrivateChat(roomId: string) {
+    if (typingRoomRef.current === roomId) stopTyping();
+
     const removeChat = () => {
       setPrivateChats((previous) =>
         previous.filter((chat) => chat.roomId !== roomId)
@@ -721,10 +729,10 @@ export default function App() {
     }
 
     const roomId = typingRoomRef.current;
-    if (roomId) {
+    if (roomId && socketRef.current?.connected) {
       socketRef.current?.emit("typing-status", { roomId, isTyping: false });
-      typingRoomRef.current = null;
     }
+    typingRoomRef.current = null;
   }
 
   function handleMessageChange(value: string) {

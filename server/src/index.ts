@@ -118,6 +118,15 @@ io.on("connection", (socket) => {
     color: sessionIdentity.color,
   };
   let offlineHandled = false;
+  const canAccessRoom = (roomId: string) =>
+    roomId === "general"
+      ? socket.rooms.has("general")
+      : privateConversations.get(roomId)?.has(socket.id) === true &&
+        privateConversations.get(roomId)?.size === 2 &&
+        [...(privateConversations.get(roomId) ?? [])].every((member) =>
+          onlineUsers.has(member)
+        ) &&
+        socket.rooms.has(roomId);
   const sessionExpiryTimer = setTimeout(
     () => socket.disconnect(true),
     Math.max(0, sessionIdentity.expiresAt - Date.now())
@@ -191,20 +200,9 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const isAllowedRoom =
-        data?.roomId === "general"
-          ? socket.rooms.has("general")
-          : typeof data?.roomId === "string" &&
-            privateConversations.get(data.roomId)?.has(socket.id) === true &&
-            privateConversations.get(data.roomId)?.size === 2 &&
-            [...(privateConversations.get(data.roomId) ?? [])].every((member) =>
-              onlineUsers.has(member)
-            ) &&
-            socket.rooms.has(data.roomId);
-
       if (
         typeof data?.roomId !== "string" ||
-        !isAllowedRoom ||
+        !canAccessRoom(data.roomId) ||
         typeof data?.message !== "string" ||
         !data.message.trim() ||
         data.message.trim().length > 2000
@@ -219,6 +217,30 @@ io.on("connection", (socket) => {
         username: identity.username,
         color: identity.color,
         timestamp: new Date().toISOString(),
+      });
+    }
+  );
+
+  socket.on(
+    "typing-status",
+    (data: { roomId?: unknown; isTyping?: unknown }) => {
+      if (!isChatSessionValid(sessionIdentity.sessionTokenHash)) {
+        socket.disconnect(true);
+        return;
+      }
+
+      if (
+        typeof data?.roomId !== "string" ||
+        typeof data.isTyping !== "boolean" ||
+        !canAccessRoom(data.roomId)
+      ) {
+        return;
+      }
+
+      socket.to(data.roomId).emit("typing-status", {
+        roomId: data.roomId,
+        username: identity.username,
+        isTyping: data.isTyping,
       });
     }
   );
