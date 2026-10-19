@@ -65,6 +65,7 @@ export default function App() {
 
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string[]>>({});
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<
     IncomingChatRequest[]
@@ -76,6 +77,8 @@ export default function App() {
   const [selectedRoomId, setSelectedRoomId] = useState("general");
   const selectedRoomIdRef = useRef("general");
   const messageListRef = useRef<HTMLDivElement>(null);
+  const typingRoomRef = useRef<string | null>(null);
+  const typingTimerRef = useRef<number | null>(null);
   const [chatTitle, setChatTitle] = useState("General chat");
   const [chatConnected, setChatConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
@@ -87,6 +90,22 @@ export default function App() {
 
     const socket = io(API_URL, { withCredentials: true });
     socketRef.current = socket;
+    const typingTimeouts = new Map<string, number>();
+
+    const clearTypingTimeout = (roomId: string, typingUsername: string) => {
+      const key = `${roomId}\0${typingUsername}`;
+      const timeout = typingTimeouts.get(key);
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+        typingTimeouts.delete(key);
+      }
+    };
+
+    const clearTypingUsers = () => {
+      typingTimeouts.forEach((timeout) => window.clearTimeout(timeout));
+      typingTimeouts.clear();
+      setTypingUsers({});
+    };
 
     socket.on("connect", () => {
       setChatConnected(true);
@@ -97,6 +116,7 @@ export default function App() {
       setOnlineUsers([]);
       setIncomingRequests([]);
       setRequestStatuses({});
+      clearTypingUsers();
       setPrivateChats((previous) =>
         previous.map((chat) => ({ ...chat, status: "disconnected" }))
       );
@@ -216,13 +236,73 @@ export default function App() {
             roomId: receivedRoomId,
           },
         ]);
+        clearTypingTimeout(receivedRoomId, receivedUsername);
+        setTypingUsers((previous) => {
+          const next = { ...previous };
+          next[receivedRoomId] = (next[receivedRoomId] ?? []).filter(
+            (typingUsername) => typingUsername !== receivedUsername
+          );
+          if (next[receivedRoomId].length === 0) delete next[receivedRoomId];
+          return next;
+        });
       }
-    );
+      );
+      socket.on(
+        "typing-status",
+        (data: { roomId?: unknown; username?: unknown; isTyping?: unknown }) => {
+          if (
+            typeof data.roomId !== "string" ||
+            typeof data.username !== "string" ||
+            typeof data.isTyping !== "boolean"
+          ) {
+            return;
+          }
 
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-      setChatConnected(false);
+          const roomId = data.roomId;
+          const typingUsername = data.username;
+          const key = `${roomId}\0${typingUsername}`;
+          clearTypingTimeout(roomId, typingUsername);
+
+          if (data.isTyping) {
+            setTypingUsers((previous) => ({
+              ...previous,
+              [roomId]: [
+                ...new Set([...(previous[roomId] ?? []), typingUsername]),
+              ],
+            }));
+            typingTimeouts.set(
+              key,
+              window.setTimeout(() => {
+                setTypingUsers((previous) => {
+                  const next = { ...previous };
+                  next[roomId] = (next[roomId] ?? []).filter(
+                    (item) => item !== typingUsername
+                  );
+                  if (next[roomId].length === 0) delete next[roomId];
+                  return next;
+                });
+                typingTimeouts.delete(key);
+              }, 2500)
+            );
+            return;
+          }
+
+          setTypingUsers((previous) => {
+            const next = { ...previous };
+            next[roomId] = (next[roomId] ?? []).filter(
+              (item) => item !== typingUsername
+            );
+            if (next[roomId].length === 0) delete next[roomId];
+            return next;
+          });
+        }
+      );
+
+      return () => {
+        clearTypingUsers();
+        socket.disconnect();
+        socketRef.current = null;
+        setChatConnected(false);
     };
   }, [showChat, username]);
 
@@ -548,6 +628,7 @@ export default function App() {
       roomId: selectedRoomId,
       message: text,
     });
+    stopTyping();
     setMessages((previous) => [
       ...previous,
       {
@@ -584,6 +665,7 @@ export default function App() {
   }
 
   function openConversation(roomId: string, title: string) {
+    stopTyping();
     selectedRoomIdRef.current = roomId;
     setSelectedRoomId(roomId);
     setChatTitle(title);
@@ -631,6 +713,41 @@ export default function App() {
   );
   const canSendMessage =
     selectedRoomId === "general" || activePrivateChat?.status === "online";
+
+  function stopTyping() {
+    if (typingTimerRef.current !== null) {
+      window.clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+
+    const roomId = typingRoomRef.current;
+    if (roomId) {
+      socketRef.current?.emit("typing-status", { roomId, isTyping: false });
+      typingRoomRef.current = null;
+    }
+  }
+
+  function handleMessageChange(value: string) {
+    setMessage(value);
+    const socket = socketRef.current;
+    const roomId = selectedRoomIdRef.current;
+
+    if (!value.trim() || !canSendMessage || !socket?.connected) {
+      stopTyping();
+      return;
+    }
+
+    if (typingRoomRef.current && typingRoomRef.current !== roomId) {
+      stopTyping();
+    }
+    typingRoomRef.current = roomId;
+    socket.emit("typing-status", { roomId, isTyping: true });
+
+    if (typingTimerRef.current !== null) {
+      window.clearTimeout(typingTimerRef.current);
+    }
+    typingTimerRef.current = window.setTimeout(stopTyping, 1200);
+  }
 
   if (showChat) {
     return (
@@ -945,13 +1062,27 @@ export default function App() {
                   </div>
                 ))
               )}
+              {(typingUsers[selectedRoomId] ?? []).length > 0 && (
+                <div className="typing-row" role="status" aria-live="polite">
+                  <span className="typing-label">
+                    {(typingUsers[selectedRoomId] ?? []).length === 1
+                      ? `@${typingUsers[selectedRoomId][0]} is typing`
+                      : "Several people are typing"}
+                  </span>
+                  <span className="typing-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              )}
             </div>
 
             <form className="message-form" onSubmit={sendMessage}>
               <input
                 type="text"
                 value={message}
-                onChange={(event) => setMessage(event.target.value)}
+                onChange={(event) => handleMessageChange(event.target.value)}
                 maxLength={2000}
                 aria-label="Write a message"
                 disabled={!canSendMessage}
