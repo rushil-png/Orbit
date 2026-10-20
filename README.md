@@ -23,8 +23,6 @@ conversation from your list.
 
 # TO DO:
 
-Typing indicator — show when someone in a private chat is typing.
-
 Unread message badges — show unread counts on chats in the sidebar.
 
 Message timestamps — subtle times beside messages, with date separators between days.
