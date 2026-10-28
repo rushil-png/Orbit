@@ -25,8 +25,6 @@ conversation from your list.
 
 Unread message badges — show unread counts on chats in the sidebar.
 
-Message timestamps — subtle times beside messages, with date separators between days.
-
 Search in conversation — find a message without scrolling through the whole chat.
 
 Better mobile layout — make the sidebar and conversation switch cleanly on small screens.
