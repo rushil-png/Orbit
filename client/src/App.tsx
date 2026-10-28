@@ -7,6 +7,7 @@ import "./App.css";
 type Message = {
   id: number;
   text: string;
+  timestamp: string;
   sender: "me" | "other";
   username: string;
   color?: string;
@@ -39,6 +40,10 @@ const API_URL =
 const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
 const USERNAME_RULES =
   "Username must be 3–20 characters: letters, numbers, and underscores only.";
+const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 export default function App() {
   const [isLogin, setIsLogin] = useState(true);
@@ -209,6 +214,7 @@ export default function App() {
         color?: unknown;
         message?: unknown;
         roomId?: unknown;
+        timestamp?: unknown;
         username?: unknown;
       }) => {
         if (
@@ -224,12 +230,18 @@ export default function App() {
         const receivedUsername = data.username;
         const receivedColor = data.color;
         const receivedRoomId = data.roomId;
+        const receivedTimestamp =
+          typeof data.timestamp === "string" &&
+          Number.isFinite(Date.parse(data.timestamp))
+            ? data.timestamp
+            : new Date().toISOString();
 
         setMessages((previous) => [
           ...previous,
           {
             id: typeof data.id === "number" ? data.id : Date.now(),
             text: receivedMessage,
+            timestamp: receivedTimestamp,
             username: receivedUsername,
             color: receivedColor,
             sender: "other",
@@ -629,6 +641,7 @@ export default function App() {
 
     const text = message.trim();
     if (!text || !socketRef.current?.connected) return;
+    const timestamp = new Date().toISOString();
 
     socketRef.current.emit("send-message", {
       roomId: selectedRoomId,
@@ -640,6 +653,7 @@ export default function App() {
       {
         id: Date.now(),
         text,
+        timestamp,
         sender: "me",
         username,
         roomId: selectedRoomId,
@@ -1066,6 +1080,14 @@ export default function App() {
                       >
                         {item.text}
                       </div>
+                      <time
+                        className="message-timestamp"
+                        dateTime={item.timestamp}
+                      >
+                        {MESSAGE_TIME_FORMATTER.format(
+                          new Date(item.timestamp)
+                        )}
+                      </time>
                     </div>
                   </div>
                 ))

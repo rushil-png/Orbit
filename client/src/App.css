@@ -631,6 +631,18 @@ font-weight: 650;
 text-align: left;
 }
 
+.message-timestamp {
+align-self: flex-start;
+margin: 4px 4px 0;
+color: #777285;
+font-size: 10px;
+line-height: 1.2;
+}
+
+.my-message .message-timestamp {
+align-self: flex-end;
+}
+
 .typing-row {
 display: flex;
 align-items: center;
